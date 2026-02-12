@@ -1,0 +1,31 @@
+name: SPY Daily Option Movers
+
+on:
+  schedule:
+    - cron: "0 23 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  run-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Script
+        run: python src/daily_option_movers.py
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: option-movers
+          path: output/daily_option_moves.csv
