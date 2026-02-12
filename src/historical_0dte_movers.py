@@ -2,39 +2,42 @@ import pandas as pd
 import numpy as np
 import requests
 import io
-import heapq
 import os
 
-# ====================================
+# =============================
 # CONFIG
-# ====================================
-GITHUB_API_URL = "https://api.github.com/repos/philippdubach/options-dataset-hist/contents/data/parquet_spy"
+# =============================
+BASE_API_URL = "https://api.github.com/repos/philippdubach/options-dataset-hist/contents/data/parquet_spy"
 TOP_N = 100
 
 
-# ====================================
-# Get Parquet File List from GitHub
-# ====================================
-def get_parquet_files():
-    print("Fetching file list from GitHub API...")
-    r = requests.get(GITHUB_API_URL)
+# =============================
+# Recursively Get All Parquet URLs
+# =============================
+def get_all_parquet_urls(api_url):
+    urls = []
+
+    r = requests.get(api_url)
     r.raise_for_status()
-    files = r.json()
 
-    parquet_files = [
-        f["download_url"]
-        for f in files
-        if f["name"].endswith(".parquet")
-    ]
+    items = r.json()
 
-    print(f"Found {len(parquet_files)} parquet files.")
-    return parquet_files
+    for item in items:
+        if item["type"] == "file" and item["name"].endswith(".parquet"):
+            urls.append(item["download_url"])
+
+        elif item["type"] == "dir":
+            urls.extend(get_all_parquet_urls(item["url"]))
+
+    return urls
 
 
-# ====================================
-# Process Single Parquet File
-# ====================================
+# =============================
+# Process One Parquet File
+# =============================
 def process_parquet(url):
+
+    print(f"Downloading: {url}")
 
     r = requests.get(url)
     r.raise_for_status()
@@ -66,72 +69,42 @@ def process_parquet(url):
     return df
 
 
-# ====================================
-# Maintain Top Movers Efficiently
-# ====================================
-def update_leaderboard(df, top_gainers, top_losers):
-
-    for _, row in df.iterrows():
-        pct = row["pct_change"]
-
-        entry = (
-            pct,
-            row["date"],
-            row["expiration"],
-            row["strike"],
-            row["type"],
-            row["prev_mid"],
-            row["mid"],
-        )
-
-        # Gainers
-        if len(top_gainers) < TOP_N:
-            heapq.heappush(top_gainers, entry)
-        else:
-            heapq.heappushpop(top_gainers, entry)
-
-        # Losers (store negative for heap logic)
-        neg_entry = (-pct,) + entry[1:]
-        if len(top_losers) < TOP_N:
-            heapq.heappush(top_losers, neg_entry)
-        else:
-            heapq.heappushpop(top_losers, neg_entry)
-
-
-# ====================================
+# =============================
 # Main
-# ====================================
+# =============================
 def main():
 
-    parquet_files = get_parquet_files()
+    print("Fetching parquet file list...")
+    parquet_urls = get_all_parquet_urls(BASE_API_URL)
 
-    top_gainers = []
-    top_losers = []
+    print(f"Found {len(parquet_urls)} parquet files.")
 
-    for url in parquet_files:
-        print(f"Processing {url}...")
+    all_results = []
+
+    for url in parquet_urls:
         df = process_parquet(url)
-        update_leaderboard(df, top_gainers, top_losers)
+        all_results.append(df)
 
-    # Convert heaps to DataFrames
-    gainers_df = pd.DataFrame(sorted(top_gainers, reverse=True),
-        columns=["pct_change","date","expiration","strike","type","prev_mid","mid"]
+    full_df = pd.concat(all_results)
+
+    print("\n=== TOP 0DTE GAINERS (ALL TIME) ===")
+    print(
+        full_df.sort_values("pct_change", ascending=False)
+        .head(TOP_N)[
+            ["date","expiration","strike","type","prev_mid","mid","pct_change"]
+        ]
     )
 
-    losers_df = pd.DataFrame(sorted(top_losers),
-        columns=["pct_change","date","expiration","strike","type","prev_mid","mid"]
+    print("\n=== TOP 0DTE LOSERS (ALL TIME) ===")
+    print(
+        full_df.sort_values("pct_change", ascending=True)
+        .head(TOP_N)[
+            ["date","expiration","strike","type","prev_mid","mid","pct_change"]
+        ]
     )
-
-    print("\n=== BIGGEST 0DTE GAINERS ===")
-    print(gainers_df)
-
-    print("\n=== BIGGEST 0DTE LOSERS ===")
-    print(losers_df)
 
     os.makedirs("output", exist_ok=True)
-
-    combined = pd.concat([gainers_df, losers_df])
-    combined.to_csv("output/historical_0dte_movers.csv", index=False)
+    full_df.to_csv("output/historical_0dte_movers.csv", index=False)
 
     print("\nSaved to output/historical_0dte_movers.csv")
 
