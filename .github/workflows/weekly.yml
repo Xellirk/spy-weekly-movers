@@ -1,0 +1,33 @@
+name: SPY Weekly Options Analysis
+
+on:
+  schedule:
+    - cron: "0 22 * * 1-5"  # Runs at 22:00 UTC (after market close weekdays)
+  workflow_dispatch:
+
+jobs:
+  run-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run script
+        run: |
+          python src/spy_weekly_movers.py
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-option-movers
+          path: output/weekly_option_movers.csv
